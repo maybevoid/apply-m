@@ -1,0 +1,26 @@
+cabal-version: 2.4
+
+name:           apply-m
+version:        0.1.0
+synopsis:       Monadic lift effectful function arguments
+category:       Effect
+stability:      experimental
+homepage:       https://github.com/maybevoid/apply-m
+bug-reports:    https://github.com/maybevoid/apply-m/issues
+author:         Soares Chen
+maintainer:     Soares Chen <soares.chen@maybevoid.com>
+copyright:      Copyright (C) Soares Ruofei Chen
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+
+library
+  exposed-modules:
+    Control.Monad.Apply
+  other-modules:
+  hs-source-dirs:
+      src/lib
+  ghc-options: -Wall
+  default-language: Haskell2010
+  build-depends:
+      base
