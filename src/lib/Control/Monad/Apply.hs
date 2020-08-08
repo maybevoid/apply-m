@@ -1,119 +1,164 @@
 {-# LANGUAGE
       RankNTypes
+    , DataKinds
     , TypeFamilies
     , InstanceSigs
+    , TypeOperators
     , ExplicitForAll
     , TypeApplications
     , FlexibleInstances
-    , AllowAmbiguousTypes
     , ScopedTypeVariables
+    , AllowAmbiguousTypes
+    , UndecidableInstances
     , MultiParamTypeClasses
+    , FunctionalDependencies
 #-}
 
 module Control.Monad.Apply
-  ( applyM
-  , applyM1
-  , applyM2
-  , applyM3
-  , applyM4
-  , applyM5
-  , applyPureM1
-  , applyPureM2
-  , applyPureM3
-  , applyPureM4
-  , applyPureM5
+  ( appM
+  , appM1
+  , appM2
+  , appM3
+  , appM4
+  , appM5
+  , appM'
+  , appM1'
+  , appM2'
+  , appM3'
+  , appM4'
+  , appM5'
   )
 where
 
 import Data.Kind (Type)
 import Control.Monad (join)
-import Control.Applicative (liftA)
+import Prelude hiding (curry, uncurry)
+import Control.Applicative (liftA, liftA2)
 
-class Joinable m f where
-  joinM :: m f -> f
+type family HArgs (xs :: [Type]) :: Type where
+  HArgs '[] = ()
+  HArgs (x ': xs) = (x, HArgs xs)
 
-instance Monad m
-  => Joinable m (m a) where
-    joinM = join
+class Curryable f args res | f args -> res where
+  curry :: f -> args -> res
+  uncurry :: (args -> res) -> f
 
-instance
-  (Monad m, Joinable m f)
-  => Joinable m (m a -> f) where
-    joinM :: m (m a -> f) -> m a -> f
-    joinM mf ma = joinM $ mf <*> pure ma
+instance Curryable a () a where
+  curry a () = a
+  uncurry f = f ()
 
-class LiftArg
-    (m :: Type -> Type)
-    (f :: Type)
-    (g :: Type)
-  where
-    applyM :: f -> g
+instance Curryable f args res => Curryable (a -> f) (a, args) res where
+  curry :: (a -> f) -> (a, args) -> res
+  curry f (a, args) = curry (f a) args
 
-instance (Applicative m) => LiftArg m a (m a) where
-  applyM :: a -> m a
-  applyM = pure
+  uncurry :: ((a, args) -> res) -> a -> f
+  uncurry f a = uncurry (\args -> f (a, args))
 
-instance LiftArg m (m a) (m a) where
-  applyM :: m a -> m a
-  applyM = id
+class WrapArgs m a b | m a -> b where
+  unwrap :: b -> m a
 
-instance (Applicative m, LiftArg m f g, Joinable m g)
-  => LiftArg m (a -> f) (m a -> g) where
-    applyM :: (a -> f) -> m a -> g
-    applyM f ma = joinM mg
-     where
-      f' :: m a -> m f
-      f' = liftA f
+instance {-# INCOHERENT #-}
+  ( Applicative m )
+  => WrapArgs m (a, ()) (m a, ()) where
+    unwrap :: (m a, ()) -> m (a, ())
+    unwrap (ma, ()) = pure (\a -> (a, ())) <*> ma
 
-      mg :: m g
-      mg = applyM @m <$> f' ma
+instance {-# INCOHERENT #-}
+  (Applicative m, WrapArgs m a1 a2)
+  => WrapArgs m (b, a1) (m b, a2) where
+    unwrap :: (m b, a2) -> m (b, a1)
+    unwrap (mb, a) = liftA2 (,) mb (unwrap a)
 
-applyM1 :: forall m a1 b . (Monad m)
+appM'
+  :: forall m args1' args1 args2 res f g
+   . ( Applicative m
+     , HArgs args1' ~ args1
+     , Curryable f args1 res
+     , Curryable g args2 (m res)
+     , WrapArgs m args1 args2
+     )
+  => f -> g
+appM' f1 = uncurry g
+ where
+  f2 :: m args1 -> m res
+  f2 = liftA $ curry f1
+
+  g :: args2 -> m res
+  g args = f2 (unwrap args)
+
+appM
+  :: forall m args1' args1 args2 res f g
+   . ( Monad m
+     , HArgs args1' ~ args1
+     , Curryable f args1 (m res)
+     , Curryable g args2 (m res)
+     , WrapArgs m args1 args2
+     )
+  => f -> g
+appM f1 = uncurry g
+ where
+  f2 :: m args1 -> m (m res)
+  f2 = liftA $ curry f1
+
+  g :: args2 -> m res
+  g args = join $ f2 (unwrap args)
+
+appM1 :: forall m a1 b
+   . (Monad m)
   => (a1 -> m b)
   -> m a1 -> m b
-applyM1 = applyM @m
+appM1 = appM @m @'[a1]
 
-applyM2 :: forall m a1 a2 b . (Monad m)
+appM2 :: forall m a1 a2 b
+   . (Monad m)
   => (a1 -> a2 -> m b)
   -> m a1 -> m a2 -> m b
-applyM2 = applyM @m
+appM2 = appM @m @'[a1, a2]
 
-applyM3 :: forall m a1 a2 a3 b . (Monad m)
+appM3 :: forall m a1 a2 a3 b
+   . (Monad m)
   => (a1 -> a2 -> a3 -> m b)
   -> m a1 -> m a2 -> m a3 -> m b
-applyM3 = applyM @m
+appM3 = appM @m @'[a1, a2, a3]
 
-applyM4 :: forall m a1 a2 a3 a4 b . (Monad m)
+appM4 :: forall m a1 a2 a3 a4 b
+   . (Monad m)
   => (a1 -> a2 -> a3 -> a4 -> m b)
   -> m a1 -> m a2 -> m a3 -> m a4 -> m b
-applyM4 = applyM @m
+appM4 = appM @m @'[a1, a2, a3, a4]
 
-applyM5 :: forall m a1 a2 a3 a4 a5 b . (Monad m)
+appM5 :: forall m a1 a2 a3 a4 a5 b
+   . (Monad m)
   => (a1 -> a2 -> a3 -> a4 -> a5 -> m b)
   -> m a1 -> m a2 -> m a3 -> m a4 -> m a5 -> m b
-applyM5 = applyM @m
+appM5 = appM @m @'[a1, a2, a3, a4, a5]
 
-applyPureM1 :: forall m a b . (Monad m)
+appM1' :: forall m a b
+   . (Applicative m)
   => (a -> b)
   -> m a -> m b
-applyPureM1 = applyM @m
+appM1' = appM' @m @'[a]
 
-applyPureM2 :: forall m a1 a2 b . (Monad m)
+appM2' :: forall m a1 a2 b
+   . (Applicative m)
   => (a1 -> a2 -> b)
   -> m a1 -> m a2 -> m b
-applyPureM2 = applyM @m
+appM2' = appM' @m @'[a1, a2]
 
-applyPureM3 :: forall m a1 a2 a3 b . (Monad m)
+appM3' :: forall m a1 a2 a3 b
+   . (Applicative m)
   => (a1 -> a2 -> a3 -> b)
   -> m a1 -> m a2 -> m a3 -> m b
-applyPureM3 = applyM @m
+appM3' = appM' @m @'[a1, a2, a3]
 
-applyPureM4 :: forall m a1 a2 a3 a4 b . (Monad m)
+appM4' :: forall m a1 a2 a3 a4 b
+   . (Applicative m)
   => (a1 -> a2 -> a3 -> a4 -> b)
   -> m a1 -> m a2 -> m a3 -> m a4 -> m b
-applyPureM4 = applyM @m
+appM4' = appM' @m @'[a1, a2, a3, a4]
 
-applyPureM5 :: forall m a1 a2 a3 a4 a5 b . (Monad m)
+appM5' :: forall m a1 a2 a3 a4 a5 b
+   . (Applicative m)
   => (a1 -> a2 -> a3 -> a4 -> a5 -> b)
   -> m a1 -> m a2 -> m a3 -> m a4 -> m a5 -> m b
-applyPureM5 = applyM @m
+appM5' = appM' @m @'[a1, a2, a3, a4, a5]
